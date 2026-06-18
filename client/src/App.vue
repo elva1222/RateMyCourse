@@ -15,10 +15,13 @@ const selectedCourse = ref(null);
 const showCourseModal = ref(false);
 const loading = ref(false);
 
+// 設定 API 基礎路徑
+const API_BASE = import.meta.env.DEV ? "http://localhost:3000" : "";
+
 async function loadCourses() {
   loading.value = true;
   try {
-    const res = await axios.get("http://localhost:3000/api/courses", {
+    const res = await axios.get(`${API_BASE}/api/courses`, {
       params: { 
         search: search.value,
         category: category.value,
@@ -35,7 +38,7 @@ async function loadCourses() {
 
 async function viewCourse(id) {
   try {
-    const res = await axios.get(`http://localhost:3000/api/courses/${id}`);
+    const res = await axios.get(`${API_BASE}/api/courses/${id}`);
     selectedCourse.value = res.data;
     window.scrollTo({ top: 0, behavior: "smooth" });
   } catch (err) {

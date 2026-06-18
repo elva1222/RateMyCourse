@@ -67,6 +67,8 @@ const form = ref({
   description: ''
 });
 
+const API_BASE = import.meta.env.DEV ? "http://localhost:3000" : "";
+
 async function submit() {
   if (!form.value.name || !form.value.teacher) {
     alert('請填寫完整資訊');
@@ -75,7 +77,7 @@ async function submit() {
   
   loading.value = true;
   try {
-    await axios.post('http://localhost:3000/api/courses', form.value);
+    await axios.post(`${API_BASE}/api/courses`, form.value);
     emit('refresh');
     emit('close');
   } catch (err) {

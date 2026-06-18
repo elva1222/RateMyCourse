@@ -10,6 +10,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from 'public' directory
+app.use(express.static(path.join(__dirname, "public")));
+
 // SQLite
 const db = new Database(path.join(__dirname, "school.db"));
 
@@ -89,14 +92,16 @@ if (row.count === 0) {
   console.log("Seed data inserted!");
 }
 
-// =====================
 // API
 // =====================
 
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString() });
+});
+
 // 所有課程
-
 app.get("/api/courses", (req, res) => {
-
   const search = req.query.search || "";
   const category = req.query.category || "";
   const sort = req.query.sort || "newest";
@@ -104,47 +109,38 @@ app.get("/api/courses", (req, res) => {
   let query = `
     SELECT
       courses.*,
-      ROUND(AVG(reviews.rating),1) AS avg_rating,
-      ROUND(AVG(reviews.workload),1) AS avg_workload,
-      ROUND(AVG(reviews.difficulty),1) AS avg_difficulty,
+      ROUND(AVG(reviews.rating), 1) AS avg_rating,
+      ROUND(AVG(reviews.workload), 1) AS avg_workload,
+      ROUND(AVG(reviews.difficulty), 1) AS avg_difficulty,
+      ROUND(AVG(reviews.exam), 1) AS avg_exam,
+      ROUND(AVG(reviews.gain), 1) AS avg_gain,
+      ROUND(AVG(reviews.fun), 1) AS avg_fun,
       COUNT(reviews.id) AS review_count
-
     FROM courses
-
-    LEFT JOIN reviews
-    ON courses.id = reviews.course_id
-
-    WHERE
-      (courses.name LIKE ?
-      OR courses.teacher LIKE ?)
+    LEFT JOIN reviews ON courses.id = reviews.course_id
+    WHERE (courses.name LIKE ? OR courses.teacher LIKE ?)
   `;
 
-  const params = [
-    `%${search}%`,
-    `%${search}%`
-  ];
-
+  const params = [`%${search}%`, `%${search}%`];
   if (category) {
-
-    query += `
-      AND courses.category = ?
-    `;
-
+    query += ` AND courses.category = ?`;
     params.push(category);
-
   }
 
-  query += `
-    GROUP BY courses.id
-  `;
+  query += ` GROUP BY courses.id`;
 
-  if (sort === "rating_desc")
-    query += " ORDER BY avg_rating DESC";
+  if (sort === "rating_desc") query += " ORDER BY avg_rating DESC";
+  else if (sort === "workload_asc") query += " ORDER BY avg_workload ASC";
+  else if (sort === "difficulty_asc") query += " ORDER BY avg_difficulty DESC"; // 通過率從高到低
+  else query += " ORDER BY courses.id DESC";
 
-  else if (sort === "workload_asc")
-    query += " ORDER BY avg_workload ASC";
-
-  else if (sort === "difficulty_asc")
+  try {
+    const rows = db.prepare(query).all(...params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
     query += " ORDER BY avg_difficulty ASC";
 
   else

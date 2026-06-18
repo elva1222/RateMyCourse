@@ -178,6 +178,8 @@ const reviewForm = ref({
   fun: 5
 });
 
+const API_BASE = import.meta.env.DEV ? "http://localhost:3000" : "";
+
 async function submitReview() {
   if (!reviewForm.value.comment.trim()) {
     alert('評價內容不能為空');
@@ -186,7 +188,7 @@ async function submitReview() {
   
   submitting.value = true;
   try {
-    await axios.post(`http://localhost:3000/api/courses/${props.course.id}/reviews`, reviewForm.value);
+    await axios.post(`${API_BASE}/api/courses/${props.course.id}/reviews`, reviewForm.value);
     emit('refresh', props.course.id);
     reviewForm.value.comment = '';
   } catch (err) {
