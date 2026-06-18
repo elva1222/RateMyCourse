@@ -90,7 +90,7 @@ onMounted(loadCourses);
 
           <div v-else class="empty-state">
             <div class="empty-illustration">🔍</div>
-            <h3>找不到相關課程</h3>
+            <h3>找不到相關課程！</h3>
             <p>試著調整關鍵字或篩選條件，或是自己新增一門課！</p>
             <button class="add-prompt-btn" @click="showCourseModal = true">＋ 新增一門課程</button>
           </div>
