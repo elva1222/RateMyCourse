@@ -13,7 +13,7 @@
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.6",
-    "express": "^4.22.2",
+    "express": "^4.21.2",
     "qs": "^6.15.2"
   }
 }
