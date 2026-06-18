@@ -12,50 +12,65 @@ app.use(express.json());
 // Serve static files from 'public' directory
 app.use(express.static(path.join(__dirname, "public")));
 
+console.log("Starting server with environment:", process.env.NODE_ENV);
+console.log("DB Path:", path.join(__dirname, "school.db"));
+
 // SQLite 初始化
-const db = new Database(path.join(__dirname, "school.db"));
+let db;
+try {
+  db = new Database(path.join(__dirname, "school.db"));
+  console.log("SQLite connected successfully!");
+} catch (err) {
+  console.error("Critical: Failed to connect to SQLite:", err);
+  // 在 Azure 環境中，如果連不到資料庫通常是因為寫入權限
+}
 
 // 建立表格
-db.exec(\`
-  CREATE TABLE IF NOT EXISTS courses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    teacher TEXT NOT NULL,
-    department TEXT,
-    category TEXT,
-    credit INTEGER,
-    description TEXT
-  );
+if (db) {
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS courses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        teacher TEXT NOT NULL,
+        department TEXT,
+        category TEXT,
+        credit INTEGER,
+        description TEXT
+      );
 
-  CREATE TABLE IF NOT EXISTS reviews (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    course_id INTEGER,
-    rating INTEGER,
-    difficulty INTEGER,
-    workload INTEGER,
-    exam INTEGER,
-    gain INTEGER,
-    fun INTEGER,
-    comment TEXT,
-    FOREIGN KEY(course_id) REFERENCES courses(id)
-  );
-\`);
+      CREATE TABLE IF NOT EXISTS reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        course_id INTEGER,
+        rating INTEGER,
+        difficulty INTEGER,
+        workload INTEGER,
+        exam INTEGER,
+        gain INTEGER,
+        fun INTEGER,
+        comment TEXT,
+        FOREIGN KEY(course_id) REFERENCES courses(id)
+      );
+    `);
+    console.log("Database tables initialized.");
+  } catch (err) {
+    console.error("Failed to execute DB initialization:", err);
+  }
+}
 
 // API
 // =====================
 
-// 健康檢查
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", time: new Date().toISOString() });
+  res.json({ status: "ok", time: new Date().toISOString(), db: !!db });
 });
 
-// 所有課程
 app.get("/api/courses", (req, res) => {
   const search = req.query.search || "";
   const category = req.query.category || "";
   const sort = req.query.sort || "newest";
 
-  let query = \`
+  let query = `
     SELECT
       courses.*,
       ROUND(AVG(reviews.rating), 1) AS avg_rating,
@@ -68,19 +83,19 @@ app.get("/api/courses", (req, res) => {
     FROM courses
     LEFT JOIN reviews ON courses.id = reviews.course_id
     WHERE (courses.name LIKE ? OR courses.teacher LIKE ?)
-  \`;
+  `;
 
-  const params = [\`%\${search}%\`, \`%\${search}%\`];
+  const params = [`%${search}%`, `%${search}%`];
   if (category) {
-    query += \` AND courses.category = ?\`;
+    query += ` AND courses.category = ?`;
     params.push(category);
   }
 
-  query += \` GROUP BY courses.id\`;
+  query += ` GROUP BY courses.id`;
 
   if (sort === "rating_desc") query += " ORDER BY avg_rating DESC";
   else if (sort === "workload_asc") query += " ORDER BY avg_workload ASC";
-  else if (sort === "difficulty_asc") query += " ORDER BY avg_difficulty DESC"; // 通過率從高到低
+  else if (sort === "difficulty_asc") query += " ORDER BY avg_difficulty DESC";
   else query += " ORDER BY courses.id DESC";
 
   try {
@@ -91,48 +106,25 @@ app.get("/api/courses", (req, res) => {
   }
 });
 
-// 新增課程
 app.post("/api/courses", (req, res) => {
   const { name, teacher, department, category, credit, description } = req.body;
-  if (!name || !teacher || !category) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
+  if (!name || !teacher || !category) return res.status(400).json({ error: "Missing fields" });
   try {
-    const info = db.prepare(\`
-      INSERT INTO courses (name, teacher, department, category, credit, description)
-      VALUES (?, ?, ?, ?, ?, ?)
-    \`).run(name, teacher, department, category, credit, description);
+    const info = db.prepare("INSERT INTO courses (name, teacher, department, category, credit, description) VALUES (?, ?, ?, ?, ?, ?)").run(name, teacher, department, category, credit, description);
     res.json({ id: info.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 單一課程
 app.get("/api/courses/:id", (req, res) => {
   const id = req.params.id;
   try {
-    const course = db.prepare(\`
-      SELECT
-        courses.*,
-        ROUND(AVG(reviews.rating), 1) AS avg_rating,
-        ROUND(AVG(reviews.workload), 1) AS avg_workload,
-        ROUND(AVG(reviews.difficulty), 1) AS avg_difficulty,
-        ROUND(AVG(reviews.exam), 1) AS avg_exam,
-        ROUND(AVG(reviews.gain), 1) AS avg_gain,
-        ROUND(AVG(reviews.fun), 1) AS avg_fun,
-        COUNT(reviews.id) AS review_count
-      FROM courses
-      LEFT JOIN reviews ON courses.id = reviews.course_id
-      WHERE courses.id = ?
-      GROUP BY courses.id
-    \`).get(id);
-
-    if (!course) {
-      return res.status(404).json({ error: "Course not found" });
-    }
-
+    const course = db.prepare(`
+      SELECT courses.*, ROUND(AVG(reviews.rating), 1) AS avg_rating, ROUND(AVG(reviews.workload), 1) AS avg_workload, ROUND(AVG(reviews.difficulty), 1) AS avg_difficulty, ROUND(AVG(reviews.exam), 1) AS avg_exam, ROUND(AVG(reviews.gain), 1) AS avg_gain, ROUND(AVG(reviews.fun), 1) AS avg_fun, COUNT(reviews.id) AS review_count
+      FROM courses LEFT JOIN reviews ON courses.id = reviews.course_id WHERE courses.id = ? GROUP BY courses.id
+    `).get(id);
+    if (!course) return res.status(404).json({ error: "Not found" });
     const reviews = db.prepare("SELECT * FROM reviews WHERE course_id = ? ORDER BY id DESC").all(id);
     res.json({ ...course, reviews });
   } catch (err) {
@@ -140,15 +132,11 @@ app.get("/api/courses/:id", (req, res) => {
   }
 });
 
-// 新增評價
 app.post("/api/courses/:id/reviews", (req, res) => {
   const courseId = req.params.id;
   const { rating, difficulty, workload, exam, gain, fun, comment } = req.body;
   try {
-    const info = db.prepare(\`
-      INSERT INTO reviews (course_id, rating, difficulty, workload, exam, gain, fun, comment)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    \`).run(courseId, rating, difficulty, workload, exam, gain, fun, comment);
+    const info = db.prepare("INSERT INTO reviews (course_id, rating, difficulty, workload, exam, gain, fun, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(courseId, rating, difficulty, workload, exam, gain, fun, comment);
     res.json({ id: info.lastInsertRowid, course_id: courseId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -161,5 +149,5 @@ app.get("*", (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(\`Server running on port \${PORT}\`);
+  console.log(`Server listening on port ${PORT}`);
 });
